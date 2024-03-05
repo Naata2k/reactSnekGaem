@@ -1,19 +1,13 @@
-import React, {useEffect, useState} from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   randomIntFromInterval,
   reverseLinkedList,
   useInterval,
-} from '../lib/utils.js';
+} from '../lib/utils.js'; //tarvittavat apu funktiot
 
 import './Board.css';
 
-/**
- * TODO: add a more elegant UX for before a game starts and after a game ends.
- * A game probably shouldn't start until the user presses an arrow key, and
- * once a game is over, the board state should likely freeze until the user
- * intentionally restarts the game.
- */
-
+//linked listan node
 class LinkedListNode {
   constructor(value) {
     this.value = value;
@@ -21,6 +15,7 @@ class LinkedListNode {
   }
 }
 
+//linked lista
 class LinkedList {
   constructor(value) {
     const node = new LinkedListNode(value);
@@ -29,6 +24,7 @@ class LinkedList {
   }
 }
 
+//suunta vakiot
 const Direction = {
   UP: 'UP',
   RIGHT: 'RIGHT',
@@ -36,9 +32,12 @@ const Direction = {
   LEFT: 'LEFT',
 };
 
+//peliin littyviä muuttujia
 const BOARD_SIZE = 15;
 const PROBABILITY_OF_DIRECTION_REVERSAL_FOOD = 0.3;
+const defaultSpeed = 150;
 
+//funktio käärmeen aloitus paikan selvittämiseksi
 const getStartingSnakeLLValue = board => {
   const rowSize = board.length;
   const colSize = board[0].length;
@@ -53,47 +52,72 @@ const getStartingSnakeLLValue = board => {
 };
 
 const Board = () => {
-  const [score, setScore] = useState(0);
+  //tarvittavat muuttujat useState:lle
+  const [speed, setSpeed] = useState(defaultSpeed);
+  const [gameOver, setGameOver] = useState(false);
   const [board, setBoard] = useState(createBoard(BOARD_SIZE));
+  const [score, setScore] = useState(0);
   const [snake, setSnake] = useState(
     new LinkedList(getStartingSnakeLLValue(board)),
   );
   const [snakeCells, setSnakeCells] = useState(
     new Set([snake.head.value.cell]),
   );
-  // Naively set the starting food cell 5 cells away from the starting snake cell.
   const [foodCell, setFoodCell] = useState(snake.head.value.cell + 5);
   const [direction, setDirection] = useState(Direction.RIGHT);
   const [foodShouldReverseDirection, setFoodShouldReverseDirection] = useState(
     false,
   );
 
-  useEffect(() => {
-    window.addEventListener('keydown', e => {
-      handleKeydown(e);
-    });
-  }, []);
-
-  // `useInterval` is needed; you can't naively do `setInterval` in the
-  // `useEffect` above. See the article linked above the `useInterval`
-  // definition for details.
-  useInterval(() => {
-    moveSnake();
-  }, 150);
-
-  const handleKeydown = e => {
-    const newDirection = getDirectionFromKey(e.key);
-    const isValidDirection = newDirection !== '';
-    if (!isValidDirection) return;
-    const snakeWillRunIntoItself =
-      getOppositeDirection(newDirection) === direction && snakeCells.size > 1;
-    // Note: this functionality is currently broken, for the same reason that
-    // `useInterval` is needed. Specifically, the `direction` and `snakeCells`
-    // will currently never reflect their "latest version" when `handleKeydown`
-    // is called. I leave it as an exercise to the viewer to fix this :P
-    if (snakeWillRunIntoItself) return;
-    setDirection(newDirection);
+  const restartGame = () => {
+    // Palauta muuttujien alkuperäiset arvot pelin loputtua
+    setGameOver(false);
+    setScore(0);
+    const newBoard = createBoard(BOARD_SIZE);
+    setBoard(newBoard);
+    const startingSnakeLLValue = getStartingSnakeLLValue(newBoard);
+    setSnake(new LinkedList(startingSnakeLLValue));
+    setSnakeCells(new Set([startingSnakeLLValue.cell]));
+    setFoodCell(startingSnakeLLValue.cell + 5);
+    setDirection(Direction.RIGHT);
+    setFoodShouldReverseDirection(false);
+    setSpeed(defaultSpeed);
   };
+  
+
+  useEffect(() => {
+    //suunnan vaihto
+    const handleKeydown = e => {
+      const newDirection = getDirectionFromKey(e.key);
+      const isValidDirection = newDirection !== '';
+
+      //onko suunta hyväksytty
+      if (!isValidDirection) return;
+
+      //tarkistetaan syökö käärme itsensä jos vaihtaa suuntaa
+      const snakeWillRunIntoItself =
+        getOppositeDirection(newDirection) === direction && snakeCells.size > 1;
+
+      //jos kyllä, älä vaihda suuntaa
+      if (snakeWillRunIntoItself) return;
+
+      setDirection(newDirection);
+    };
+
+    window.addEventListener('keydown', handleKeydown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeydown);
+    };
+  }, [direction, snakeCells]);
+
+  //jos peli ei ole ohi niin käärme liikkuu annetulla nopeudella
+  useInterval(() => {
+    if (!gameOver) {
+      moveSnake();
+    }
+  }, speed);
+  
 
   const moveSnake = () => {
     const currentHeadCoords = {
@@ -101,12 +125,17 @@ const Board = () => {
       col: snake.head.value.col,
     };
 
+    //seuraavat pään kordinaatit käärmeen suunnan perusteella
     const nextHeadCoords = getCoordsInDirection(currentHeadCoords, direction);
+
+    //tsekataan onko käärme yli pelilaudan
     if (isOutOfBounds(nextHeadCoords, board)) {
       handleGameOver();
       return;
     }
     const nextHeadCell = board[nextHeadCoords.row][nextHeadCoords.col];
+
+    //tarkistetaan osuuko käärme itseensä
     if (snakeCells.has(nextHeadCell)) {
       handleGameOver();
       return;
@@ -117,33 +146,34 @@ const Board = () => {
       col: nextHeadCoords.col,
       cell: nextHeadCell,
     });
+
     const currentHead = snake.head;
     snake.head = newHead;
     currentHead.next = newHead;
 
+    //poistetaan käärmeen viimeinen ruutu (häntä) ja lisätään uusi käärmeen pää
     const newSnakeCells = new Set(snakeCells);
     newSnakeCells.delete(snake.tail.value.cell);
     newSnakeCells.add(nextHeadCell);
 
+    //liikutetaan käärmeen häntä seuraavaan nodeen linked listassa
     snake.tail = snake.tail.next;
     if (snake.tail === null) snake.tail = snake.head;
 
     const foodConsumed = nextHeadCell === foodCell;
     if (foodConsumed) {
-      // This function mutates newSnakeCells.
+      //jos syö ruuan, kasvata käärmettä tai käännä suuntaa tarvittaessa
       growSnake(newSnakeCells);
       if (foodShouldReverseDirection) reverseSnake();
       handleFoodConsumption(newSnakeCells);
     }
-
+    //päivitetään käärmeen solut
     setSnakeCells(newSnakeCells);
   };
 
-  // This function mutates newSnakeCells.
   const growSnake = newSnakeCells => {
     const growthNodeCoords = getGrowthNodeCoords(snake.tail, direction);
     if (isOutOfBounds(growthNodeCoords, board)) {
-      // Snake is positioned such that it can't grow; don't do anything.
       return;
     }
     const newTailCell = board[growthNodeCoords.row][growthNodeCoords.col];
@@ -159,26 +189,27 @@ const Board = () => {
     newSnakeCells.add(newTailCell);
   };
 
+
   const reverseSnake = () => {
     const tailNextNodeDirection = getNextNodeDirection(snake.tail, direction);
     const newDirection = getOppositeDirection(tailNextNodeDirection);
     setDirection(newDirection);
 
-    // The tail of the snake is really the head of the linked list, which
-    // is why we have to pass the snake's tail to `reverseLinkedList`.
+    //käännetään linked lista alkaen käärmeen hännästä
     reverseLinkedList(snake.tail);
+
+    //vaihda pään ja hännän paikat linked listassa
     const snakeHead = snake.head;
     snake.head = snake.tail;
     snake.tail = snakeHead;
   };
 
+
   const handleFoodConsumption = newSnakeCells => {
     const maxPossibleCellValue = BOARD_SIZE * BOARD_SIZE;
     let nextFoodCell;
-    // In practice, this will never be a time-consuming operation. Even
-    // in the extreme scenario where a snake is so big that it takes up 90%
-    // of the board (nearly impossible), there would be a 10% chance of generating
-    // a valid new food cell--so an average of 10 operations: trivial.
+
+    //luodaan satunnainen solu johon ruuan laitta, tsekataan että ruoka ei mene käärmeen päälle
     while (true) {
       nextFoodCell = randomIntFromInterval(1, maxPossibleCellValue);
       if (newSnakeCells.has(nextFoodCell) || foodCell === nextFoodCell)
@@ -186,16 +217,20 @@ const Board = () => {
       break;
     }
 
+    //päätetään onko ruoka käärmeen suunnan vaihtava
     const nextFoodShouldReverseDirection =
       Math.random() < PROBABILITY_OF_DIRECTION_REVERSAL_FOOD;
 
+    //päivitetään pisteet, ruuan paikka, ja onko ruoka suuntaa vaihtava
     setFoodCell(nextFoodCell);
     setFoodShouldReverseDirection(nextFoodShouldReverseDirection);
     setScore(score + 1);
   };
 
   const handleGameOver = () => {
-    setScore(0);
+    //käärmeen vauhti 0, jotta käärme ei jatka liikkumista vaikka lopetus ruutu on näkyvillä
+    setSpeed(0);
+    setGameOver(true);
     const snakeLLStartingValue = getStartingSnakeLLValue(board);
     setSnake(new LinkedList(snakeLLStartingValue));
     setFoodCell(snakeLLStartingValue.cell + 5);
@@ -205,26 +240,38 @@ const Board = () => {
 
   return (
     <>
-      <h1>Score: {score}</h1>
-      <div className="board">
-        {board.map((row, rowIdx) => (
-          <div key={rowIdx} className="row">
-            {row.map((cellValue, cellIdx) => {
-              const className = getCellClassName(
-                cellValue,
-                foodCell,
-                foodShouldReverseDirection,
-                snakeCells,
-              );
-              return <div key={cellIdx} className={className}></div>;
-            })}
+      {gameOver ? (
+        <div className="ending-screen">
+          <h1>Game Over</h1>
+          <p>Your Score: {score}</p>
+          <button onClick={restartGame}>Restart</button>
+        </div>
+      ) : (
+        <>
+          <h1>Score: {score}</h1>
+          <div className="board">
+            {board.map((row, rowIdx) => (
+              <div key={rowIdx} className="row">
+                {row.map((cellValue, colIdx) => {
+                  const className = getCellClassName(
+                    cellValue,
+                    foodCell,
+                    foodShouldReverseDirection,
+                    snakeCells,
+                  );
+                  return <div key={colIdx} className={className}></div>;
+                })}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
     </>
   );
+  
 };
 
+//luodaan peli lauta riippuen pelilaudan koosta
 const createBoard = BOARD_SIZE => {
   let counter = 1;
   const board = [];
@@ -237,7 +284,7 @@ const createBoard = BOARD_SIZE => {
   }
   return board;
 };
-
+//seuraavien kordinaattien laskenta, suunnan ja nykyisten kordinaattien perusteella
 const getCoordsInDirection = (coords, direction) => {
   if (direction === Direction.UP) {
     return {
@@ -265,13 +312,15 @@ const getCoordsInDirection = (coords, direction) => {
   }
 };
 
+//funktio tarkistamaan onko käärme yli pelilaudan vai ei
 const isOutOfBounds = (coords, board) => {
-  const {row, col} = coords;
+  const { row, col } = coords;
   if (row < 0 || col < 0) return true;
   if (row >= board.length || col >= board[0].length) return true;
   return false;
 };
 
+//suunnan vaihto
 const getDirectionFromKey = key => {
   if (key === 'ArrowUp') return Direction.UP;
   if (key === 'ArrowRight') return Direction.RIGHT;
@@ -282,8 +331,18 @@ const getDirectionFromKey = key => {
 
 const getNextNodeDirection = (node, currentDirection) => {
   if (node.next === null) return currentDirection;
-  const {row: currentRow, col: currentCol} = node.value;
-  const {row: nextRow, col: nextCol} = node.next.value;
+  const { row: currentRow, col: currentCol } = node.value;
+  const { row: nextRow, col: nextCol } = node.next.value;
+
+  if (
+    (currentDirection === Direction.RIGHT && nextCol === currentCol - 1) ||
+    (currentDirection === Direction.LEFT && nextCol === currentCol + 1) ||
+    (currentDirection === Direction.DOWN && nextRow === currentRow - 1) ||
+    (currentDirection === Direction.UP && nextRow === currentRow + 1)
+  ) {
+    return currentDirection;
+  }
+  //verrataan seuraava nodea nykyiseen nodeen 
   if (nextRow === currentRow && nextCol === currentCol + 1) {
     return Direction.RIGHT;
   }
@@ -296,6 +355,7 @@ const getNextNodeDirection = (node, currentDirection) => {
   if (nextCol === currentCol && nextRow === currentRow - 1) {
     return Direction.UP;
   }
+
   return '';
 };
 
@@ -316,6 +376,7 @@ const getGrowthNodeCoords = (snakeTail, currentDirection) => {
   return growthNodeCoords;
 };
 
+//vastakkaisen suunan laskenta, suunnan vaihtavaa ruokaa varten
 const getOppositeDirection = direction => {
   if (direction === Direction.UP) return Direction.DOWN;
   if (direction === Direction.RIGHT) return Direction.LEFT;
@@ -323,6 +384,8 @@ const getOppositeDirection = direction => {
   if (direction === Direction.LEFT) return Direction.RIGHT;
 };
 
+
+//css funktio solujen väreille
 const getCellClassName = (
   cellValue,
   foodCell,
@@ -337,6 +400,7 @@ const getCellClassName = (
       className = 'cell cell-red';
     }
   }
+
   if (snakeCells.has(cellValue)) className = 'cell cell-green';
 
   return className;
